@@ -1,0 +1,22 @@
+{
+  "name": "polyakov-fuel",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "nodemon --watch index.js"
+  },
+  "description": "Payment fuel",
+  "main": "index.js",
+  "repository": "https://github.com/kh1ndr1kson/polyakov-fuel.git",
+  "author": "kh1ndr",
+  "license": "MIT",
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  },
+  "dependencies": {
+    "@telegraf/entity": "^0.5.0",
+    "dotenv": "^16.4.5",
+    "mongoose": "^8.5.0",
+    "telegraf": "^4.16.3"
+  }
+}

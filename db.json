@@ -1,0 +1,10 @@
+{
+  "tickets": {
+    "1": {
+      "user": {
+        "user_id": 1,
+        "first_name": "Sergey"
+      }
+    }
+  }
+}
