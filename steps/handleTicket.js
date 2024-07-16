@@ -1,5 +1,5 @@
 import {escapers} from "@telegraf/entity"
-import {tickets} from "../db.js";
+import {_tickets_, tickets, ticketSchema} from "../db.js";
 import {statuses} from "../utils/statuses.js";
 import {ticketManager} from "../utils/ticket.manager.js";
 import {ticketDriver} from "../utils/ticket.driver.js";
@@ -10,6 +10,11 @@ export async function handleTicket(bot, user, price, status) {
   // Сохранение заявки
   const ticketId = Object.keys(tickets).length + 1 // Date.now().toString();
   let messageId = ''
+  const tickets_ = await _tickets_.find()
+  // Save to db
+  await new TicketModel({
+    text: 'Text custom',
+  }).save()
 
   tickets[ticketId] = {
     user,
@@ -50,19 +55,14 @@ export async function handleTicket(bot, user, price, status) {
       {
         parse_mode: 'MarkdownV2',
         reply_markup: {
-          inline_keyboard: [
-            [
-              // { text: '✅ Одобрить', callback_data: 'accept_ticket' },
-              // { text: '❌ Отклонить', callback_data: 'cancel_ticket' }
-            ]
-          ]
+          inline_keyboard: [[]]
         }
       }
     )
   })
 
   bot.action('accept_ticket', async (ctx) => {
-    if (ctx.update.callback_query.from.user_id !== tickets[ticketId].manager.user_id) {
+    if (ctx.update.callback_query.from.user_id !== tickets[ticketId].manager.id) {
       ctx.answerCbQuery('Ошибка доступа. Вы не являетесь менеджером этой заявки.')
 
       return
@@ -71,6 +71,7 @@ export async function handleTicket(bot, user, price, status) {
     bot.telegram.reply(groupId, 'Accept_ticket')
   })
 
+  // DRIVER Trusted payment
   bot.action(/^payment_trust_(\d+(\.\d+)?)$/, async (ctx) => {
     const tid = ctx.match[1]
 

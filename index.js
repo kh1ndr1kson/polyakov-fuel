@@ -63,7 +63,20 @@ bot.on('text', async (ctx) => {
       if (ctx.update.message?.reply_to_message) {
         const messageId = ctx.update.message.message_id
         const replyMessageId = ctx.update.message?.reply_to_message.message_id
-        const tid = Object.entries(tickets).filter(([key, body]) => body.manager_message_id === replyMessageId)[0][0]
+        console.log(tickets)
+        const tid = Object.entries(tickets)
+          .filter(([key, body]) => body.manager_message_id === replyMessageId)[0][0]
+
+        // Check forbidden
+        if (ctx.update.message.from.id === tickets[tid].manager.id) {
+          await ctx.telegram.sendMessage(
+            groupId,
+            'Ошибка доступа. Вы не являетесь менеджером этой заявки.',
+            { reply_to_message_id: messageId }
+          )
+
+          return
+        }
 
         if (!tickets[tid].payment_info) {
           tickets[tid].payment_info = ctx.update.message.text
@@ -142,7 +155,7 @@ bot.on('text', async (ctx) => {
       } else {
         await ctx.telegram.sendMessage(
           groupId,
-          'Необходимо ответным сообщением на Заявку - отправить реквизиты.',
+          'Необходимо ответным сообщением на Заявку — отправить реквизиты.',
           { reply_to_message_id: ctx.message.message_id }
         )
       }
