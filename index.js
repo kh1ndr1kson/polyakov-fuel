@@ -2,22 +2,17 @@ import { Telegraf, Markup } from 'telegraf'
 import 'dotenv/config'
 import {hello} from "./utils/hello.js";
 import {commands} from "./utils/commands.js";
-import {Tickets, tickets} from "./db.js";
+import {Tickets} from "./db.js";
 import {ticketDriver} from "./utils/ticket.driver.js";
 import {statuses} from "./utils/statuses.js";
 import {ticketManager} from "./utils/ticket.manager.js";
-import {handleTicket} from "./steps/handleTicket.js";
+import {handleTicket} from "./features/handleTicket.js";
 import {GROUP_ID} from "./utils/constants.js";
 import {escapers} from "@telegraf/entity";
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
 bot.telegram.setMyCommands(commands).then(r => {})
-
-const user = {
-  chat_id: null,
-  phone_number: null,
-}
 
 bot.start((ctx) => {
   if (ctx.update.message.chat.id === Number(GROUP_ID)) {
@@ -141,8 +136,8 @@ bot.on('text', async (ctx) => {
                   await bot.telegram.sendMessage(
                     ticket_updated.driver.id,
                     [
-                      `Текущий баланс топливной карты: *${ticket_updated.payment_balance}₽*`,
-                      'Если захотите пополнить карту снова, введите: /start'
+                      `Текущий баланс топливной карты: *${ticket_updated.payment_balance} ₽*\n\n`,
+                      '_Если захотите пополнить карту снова, введите: /start_'
                     ].join(''), {
                       parse_mode: 'MarkdownV2',
                       reply_markup: {
@@ -180,6 +175,6 @@ bot
 );
 
 // Остановка бота (SIGINT, SIGTERM, SIGQUIT)
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
-process.once('SIGQUIT', () => bot.stop('SIGQUIT'));
+// process.once('SIGINT', () => bot.stop('SIGINT'));
+// process.once('SIGTERM', () => bot.stop('SIGTERM'));
+// process.once('SIGQUIT', () => bot.stop('SIGQUIT'));

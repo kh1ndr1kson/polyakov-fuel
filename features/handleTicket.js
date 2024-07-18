@@ -1,14 +1,10 @@
-import {Tickets, tickets} from "../db.js";
+import {Tickets} from "../db.js";
 import {statuses} from "../utils/statuses.js";
 import {ticketManager} from "../utils/ticket.manager.js";
 import {ticketDriver} from "../utils/ticket.driver.js";
 import {GROUP_ID} from "../utils/constants.js";
 
 export async function handleTicket(bot, driver, info, status) {
-  // Сохранение заявки
-  // const ticketId = Object.keys(tickets).length + 1 // Date.now().toString();
-  // let messageId = ''
-  const tickets = await Tickets.find()
   // Save to db
   await new Tickets({
     info,
@@ -38,7 +34,7 @@ export async function handleTicket(bot, driver, info, status) {
 
   bot.action('take_ticket', async (ctx) => {
     const message_id = ctx.update.callback_query.message.message_id
-    // const tid = Object.entries(tickets).filter(([key, body]) => body.manager_message_id === messageId)[0][0]
+
     Tickets.findOne({ tg_manager_message_id: message_id })
       .then(async (local_ticket) => {
         // update ticket

@@ -32,5 +32,3 @@ export const ticketSchema = new mongoose.Schema({
 })
 
 export const Tickets = mongoose.model('tickets', ticketSchema)
-
-export const tickets = {}

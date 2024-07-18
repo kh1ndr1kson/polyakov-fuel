@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "nodemon --watch index.js"
+    "dev": "nodemon --watch index.js",
+    "launch": "node index.js"
   },
   "description": "Payment fuel",
   "main": "index.js",
