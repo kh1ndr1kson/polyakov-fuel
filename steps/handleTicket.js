@@ -1,126 +1,112 @@
-import {escapers} from "@telegraf/entity"
-import {_tickets_, tickets, ticketSchema} from "../db.js";
+import {Tickets, tickets} from "../db.js";
 import {statuses} from "../utils/statuses.js";
 import {ticketManager} from "../utils/ticket.manager.js";
 import {ticketDriver} from "../utils/ticket.driver.js";
+import {GROUP_ID} from "../utils/constants.js";
 
-const groupId = process.env.GROUP_ID; //  ID группы с менеджерами
-
-export async function handleTicket(bot, user, price, status) {
+export async function handleTicket(bot, driver, info, status) {
   // Сохранение заявки
-  const ticketId = Object.keys(tickets).length + 1 // Date.now().toString();
-  let messageId = ''
-  const tickets_ = await _tickets_.find()
+  // const ticketId = Object.keys(tickets).length + 1 // Date.now().toString();
+  // let messageId = ''
+  const tickets = await Tickets.find()
   // Save to db
-  await new TicketModel({
-    text: 'Text custom',
-  }).save()
-
-  tickets[ticketId] = {
-    user,
-    price,
+  await new Tickets({
+    info,
     status,
-    manager: null,
-  }
-
-  try {
-    await bot.telegram.sendMessage(groupId, ticketManager(ticketId, tickets[ticketId]),
-      {
-        parse_mode: 'MarkdownV2',
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: 'Принять заявку', callback_data: 'take_ticket' }]
-          ]
+    driver
+  })
+    .save({ new: true })
+    .then(async (new_ticket) => {
+      await bot.telegram.sendMessage(GROUP_ID, ticketManager(new_ticket),
+        {
+          parse_mode: 'MarkdownV2',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: 'Принять заявку', callback_data: 'take_ticket' }]
+            ]
+          }
         }
-      }
-    )
-      .then((r) => tickets[ticketId].manager_message_id = r.message_id)
-  } catch (error) {
-    console.error(`Ошибка отправки заявки в группу:`, error)
-  }
+      )
+        .then(async (r) => {
+          await Tickets.updateOne(
+            { _id: new_ticket._id},
+            { tg_manager_message_id: r.message_id },
+            { new: true }
+          )
+        })
+    })
 
   bot.action('take_ticket', async (ctx) => {
-    messageId = ctx.update.callback_query.message.message_id
-    const tid = Object.entries(tickets).filter(([key, body]) => body.manager_message_id === messageId)[0][0]
-
-    // update ticket
-    tickets[tid].status = statuses.processed
-    tickets[tid].manager = ctx.update.callback_query.from
-
-    await bot.telegram.editMessageText(
-      groupId,
-      messageId,
-      null,
-      ticketManager(tid, tickets[tid]),
-      {
-        parse_mode: 'MarkdownV2',
-        reply_markup: {
-          inline_keyboard: [[]]
-        }
-      }
-    )
-  })
-
-  bot.action('accept_ticket', async (ctx) => {
-    if (ctx.update.callback_query.from.user_id !== tickets[ticketId].manager.id) {
-      ctx.answerCbQuery('Ошибка доступа. Вы не являетесь менеджером этой заявки.')
-
-      return
-    }
-
-    bot.telegram.reply(groupId, 'Accept_ticket')
-  })
-
-  // DRIVER Trusted payment
-  bot.action(/^payment_trust_(\d+(\.\d+)?)$/, async (ctx) => {
-    const tid = ctx.match[1]
-
-    // update ticket
-    tickets[tid].status = statuses.trusted
-
-    await bot.telegram.editMessageText(
-      groupId,
-      messageId,
-      null,
-      ticketManager(tid, tickets[tid]),
-      {
-        parse_mode: 'MarkdownV2',
-        reply_markup: {
-          inline_keyboard: [
-            [
-              // { text: 'Подтвердить оплату', callback_data: 'accept_ticket' }
-            ]
-          ]
-        }
-      }
-    )
-      .then(async (r) => {
-        // send from GROUP to DRIVER
-        await ctx.telegram.editMessageText(
-          tickets[tid].user.chat_id,
-          tickets[tid].driver_message_id,
-          null,
-          ticketDriver(tid, tickets[tid], '', 'Ожидайте подтверждения от менеджера ⏳'),
-          {
-            parse_mode: 'MarkdownV2',
-            reply_markup: {
-              inline_keyboard: [
-                []
-              ]
+    const message_id = ctx.update.callback_query.message.message_id
+    // const tid = Object.entries(tickets).filter(([key, body]) => body.manager_message_id === messageId)[0][0]
+    Tickets.findOne({ tg_manager_message_id: message_id })
+      .then(async (local_ticket) => {
+        // update ticket
+        await Tickets.findOneAndUpdate(
+          { _id: local_ticket._id},
+          { manager: ctx.update.callback_query.from, status: statuses.processed },
+          { new: true }
+        ).then(async (t) => {
+          await bot.telegram.editMessageText(
+            GROUP_ID,
+            t.tg_manager_message_id,
+            null,
+            ticketManager(t),
+            {
+              parse_mode: 'MarkdownV2',
+              reply_markup: {
+                inline_keyboard: [[]]
+              }
             }
-          }
-        )
-
-        await ctx.telegram.sendMessage(
-          groupId,
-          'Водитель подтвердил оплату, проверяйте.',
-          { reply_to_message_id: tickets[tid].manager_message_id }
-        )
+          )
+        })
       })
   })
 
-  return {
-    key: ticketId,
-    body: tickets[ticketId]
-  }
+  // DRIVER Trusted payment
+  bot.action(/^payment_trust_(\w+)$/, async (ctx) => {
+    const local_ticket_id = ctx.match[1]
+
+    // update ticket
+    await Tickets.findOneAndUpdate(
+      { _id: local_ticket_id},
+      { status: statuses.trusted },
+      { new: true }
+    )
+      .then(async (t) => {
+        await bot.telegram.editMessageText(
+          GROUP_ID,
+          t.tg_manager_message_id,
+          null,
+          ticketManager(t),
+          {
+            parse_mode: 'MarkdownV2',
+            reply_markup: {
+              inline_keyboard: [ [] ]
+            }
+          }
+        )
+          .then(async () => {
+            // send from GROUP to DRIVER
+            await ctx.telegram.editMessageText(
+              t.driver.id,
+              t.tg_driver_message_id,
+              null,
+              ticketDriver(t, '', 'Ожидайте подтверждения от менеджера ⏳'),
+              {
+                parse_mode: 'MarkdownV2',
+                reply_markup: {
+                  inline_keyboard: [ [] ]
+                }
+              }
+            )
+
+            await ctx.telegram.sendMessage(
+              GROUP_ID,
+              'Водитель подтвердил оплату, проверяйте.',
+              { reply_to_message_id: t.tg_manager_message_id }
+            )
+          })
+      })
+  })
 }

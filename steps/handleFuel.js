@@ -7,32 +7,10 @@ const groupId = process.env.GROUP_ID; //  ID группы с менеджера�
 
 export function handleFuel(bot, user) {
   bot.action('start_fuel', async (ctx) => {
-    if (!user.phone_number) {
-      ctx.replyWithMarkdown('Введите номер телефона:')
-    } else {
       ctx.replyWithMarkdown([
-          `Ваш номер телефона: *${user.phone_number}* 👋\n`,
-          'Укажите сумму оплаты'
-        ].join(''),
-        Markup.inlineKeyboard([
-          [
-            Markup.button.callback('500₽', 'action_price_500'),
-            Markup.button.callback('1000₽', 'action_price_1000')
-          ],
-          // [
-          //   Markup.button.callback('1 500₽', '1500'),
-          //   Markup.button.callback('2 000₽', '2000'),
-          // ],
-          // [
-          //   Markup.button.callback('2 500₽', '2500'),
-          //   Markup.button.callback('3 000₽', '3000'),
-          // ],
-          // [
-          //   Markup.button.callback('Другая сумма', 'other'),
-          // ]
-        ])
-      )
-    }
+        'Напишите в следующем сообщении необходимую информацию для пополнения карты:\n',
+        '_(Ваше ФИО, название АЗС, сумма к пополнению)_'
+      ].join(''))
   })
 
   /* Price actions */

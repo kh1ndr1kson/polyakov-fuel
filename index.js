@@ -2,15 +2,15 @@ import { Telegraf, Markup } from 'telegraf'
 import 'dotenv/config'
 import {hello} from "./utils/hello.js";
 import {commands} from "./utils/commands.js";
-import {handleFuel} from "./steps/handleFuel.js";
-import {escapers} from "@telegraf/entity";
-import {tickets} from "./db.js";
+import {Tickets, tickets} from "./db.js";
 import {ticketDriver} from "./utils/ticket.driver.js";
 import {statuses} from "./utils/statuses.js";
 import {ticketManager} from "./utils/ticket.manager.js";
+import {handleTicket} from "./steps/handleTicket.js";
+import {GROUP_ID} from "./utils/constants.js";
+import {escapers} from "@telegraf/entity";
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
-const groupId = process.env.GROUP_ID; //  ID группы с менеджерами
 
 bot.telegram.setMyCommands(commands).then(r => {})
 
@@ -20,9 +20,9 @@ const user = {
 }
 
 bot.start((ctx) => {
-  if (ctx.update.message.chat.id === Number(groupId)) {
+  if (ctx.update.message.chat.id === Number(GROUP_ID)) {
     ctx.replyWithMarkdown([
-      'Извините, команды *Бота* недоступены внутри группы 😞'
+      'Извините, команды *Бота* недоступны внутри группы 😞'
     ].join(''))
 
     return // exit
@@ -30,131 +30,139 @@ bot.start((ctx) => {
 
   ctx.replyWithMarkdown([
     `${hello()} 👋\n`,
-    'Я помогу Вам пополнить топливную карту *ОПТИ 24*.',
-    // 'Если хотите сделать это прямо сейчас, нажмите на кнопку ниже ⬇️'
+    'Я помогу Вам пополнить *топливную карту*.',
     ].join(''),
     Markup.inlineKeyboard([
       Markup.button.callback('Пополнить карту', 'start_fuel'),
     ])
   )
 
-  handleFuel(bot, user)
+  bot.action('start_fuel', async (ctx) => {
+    ctx.replyWithMarkdownV2([
+      'Напишите в следующем сообщении необходимую информацию для пополнения карты:\n\n',
+      '*Пример:*\n',
+      `||_${escapers.MarkdownV2('Петров Владимир Валерьевич\n8 (999) 880-32-12\nАЗС - Газпром, на сумму 2000 рублей')}_||`
+    ].join(''))
+  })
 })
 
 bot.on('text', async (ctx) => {
   if (ctx.chat.type === 'private') {
-    user.chat_id = ctx.update.message.chat.id
-    user.phone_number = ctx.update.message.text
+    const driver = ctx.update.message.from
+    const ticket_info = ctx.update.message.text
 
-    ctx.replyWithMarkdown([
-        'Спасибо что поделились своим контактом.\n',
-        `Ваш номер телефона: *${user.phone_number}* сохранен для дальнейших пополнений.\n\n`,
-        'На какую сумму желаете пополнить карту? 😊'
-      ].join(''),
-      Markup.inlineKeyboard([
-        [
-          Markup.button.callback('500₽', 'action_price_500'),
-          Markup.button.callback('1000₽', 'action_price_1000')
-        ]
-      ])
-    )
+    await handleTicket(bot, driver, ticket_info, statuses.created)
+      .then(() => {
+        ctx.replyWithMarkdown([
+            'Спасибо.\n',
+            'Заявка на пополнение топливной карты успешно создана.\n\n',
+            'Подождите, пожалуйста, скоро менеджер одобрит заявку и Вам придет сообщение для дальнейшей *оплаты*. \n\n',
+          ].join('')
+        )
+      })
   } else if (ctx.chat.type === 'group' || ctx.chat.type === 'supergroup') {
-    if (ctx.update.message.chat.id === Number(groupId)) {
+    if (ctx.update.message.chat.id === Number(GROUP_ID)) {
       if (ctx.update.message?.reply_to_message) {
-        const messageId = ctx.update.message.message_id
-        const replyMessageId = ctx.update.message?.reply_to_message.message_id
-        console.log(tickets)
-        const tid = Object.entries(tickets)
-          .filter(([key, body]) => body.manager_message_id === replyMessageId)[0][0]
+        const message_id = ctx.update.message.message_id
+        const reply_message_id = ctx.update.message?.reply_to_message.message_id
 
-        // Check forbidden
-        if (ctx.update.message.from.id === tickets[tid].manager.id) {
-          await ctx.telegram.sendMessage(
-            groupId,
-            'Ошибка доступа. Вы не являетесь менеджером этой заявки.',
-            { reply_to_message_id: messageId }
-          )
-
-          return
-        }
-
-        if (!tickets[tid].payment_info) {
-          tickets[tid].payment_info = ctx.update.message.text
-
-          // send from GROUP to DRIVER
-          await bot.telegram.sendMessage(
-            user.chat_id,
-            ticketDriver(tid, tickets[tid], ctx.update.message.text, 'После оплаты, нажмите на кнопку ⬇️'),
-            {
-              parse_mode: 'MarkdownV2',
-              reply_markup: {
-                inline_keyboard: [
-                  [{ text: 'Я оплатил', callback_data: `payment_trust_${tid}` }]
-                ]
-              }
-            }
-          )
-            .then(async (r) => {
-              tickets[tid].driver_message_id = r.message_id
-
+        Tickets.findOne({ tg_manager_message_id: reply_message_id })
+          .then(async (ticket_founded) => {
+            // Check forbidden
+            if (ctx.update.message.from.id !== ticket_founded?.manager?.id || !ticket_founded?.manager?.id) {
               await ctx.telegram.sendMessage(
-                groupId,
-                'Спасибо. Я отправил Ваши реквизиты водителю.',
-                { reply_to_message_id: messageId }
+                GROUP_ID,
+                'Ошибка доступа. Вы не являетесь менеджером этой заявки.',
+                { reply_to_message_id: message_id }
               )
-            })
-        } else {
-          tickets[tid].status = statuses.accepted
-          tickets[tid].payment_balance = ctx.update.message.text
 
-          // update tickets [DRIVER, MANAGER]
-          await bot.telegram.editMessageText(
-            tickets[tid].user.chat_id,
-            tickets[tid].driver_message_id,
-            null,
-            ticketDriver(tid, tickets[tid], '', ''),
-            {
-              parse_mode: 'MarkdownV2',
-              reply_markup: { inline_keyboard: [ [ ] ] }
+              return
             }
-          )
 
-          await bot.telegram.editMessageText(
-            groupId,
-            tickets[tid].manager_message_id,
-            null,
-            ticketManager(tid, tickets[tid]),
-            {
-              parse_mode: 'MarkdownV2',
-              reply_markup: { inline_keyboard: [ [ ] ] }
-            }
-          )
-
-          await bot.telegram.sendMessage(
-            user.chat_id, [
-              `Заявка №${tid} ${tickets[tid].status}\n`,
-              `Текущий баланс: *${tickets[tid].payment_balance}₽*\n\n`,
-              '_Для повторного пополнения топливной карты нажмите кнопку ⬇️_'
-            ].join(''), {
-              parse_mode: 'MarkdownV2',
-              reply_markup: {
-                inline_keyboard: [
-                  [{ text: 'Пополнить карту', callback_data: `start` }]
-                ]
-              }
-            }
-          )
-            .then(async (r) => {
-              await ctx.telegram.sendMessage(
-                groupId,
-                `Спасибо. Заявка успешно ${tickets[tid].status}`,
-                { reply_to_message_id: messageId }
+            if (!ticket_founded.payment_info) {
+              // create ticket-message to DRIVER
+              // send from GROUP to DRIVER
+              await bot.telegram.sendMessage(
+                ticket_founded.driver.id,
+                ticketDriver(ticket_founded, ctx.update.message.text, 'После оплаты, нажмите на кнопку ⬇️'),
+                {
+                  parse_mode: 'MarkdownV2',
+                  reply_markup: {
+                    inline_keyboard: [
+                      [{ text: 'Я оплатил', callback_data: `payment_trust_${ticket_founded._id}` }]
+                    ]
+                  }
+                }
               )
-            })
-        }
+                .then(async (r) => {
+                  await Tickets.findOneAndUpdate(
+                    { _id: ticket_founded._id},
+                    { payment_info: ctx.update.message.text, tg_driver_message_id: r.message_id },
+                    { new: true }
+                  )
+                    .then(async (ticket_updated) => {
+                      await ctx.telegram.sendMessage(
+                        GROUP_ID,
+                        'Спасибо. Я отправил Ваши реквизиты водителю.',
+                        { reply_to_message_id: message_id }
+                      )
+                    })
+                })
+            } else {
+              await Tickets.findOneAndUpdate(
+                { _id: ticket_founded._id},
+                { status: statuses.accepted, payment_balance: ctx.update.message.text },
+                { new: true }
+              )
+                .then(async (ticket_updated) => {
+                  // update tickets [DRIVER, MANAGER]
+                  await bot.telegram.editMessageText(
+                    ticket_updated.driver.id,
+                    ticket_updated.tg_driver_message_id,
+                    null,
+                    ticketDriver(ticket_updated, '', ''),
+                    {
+                      parse_mode: 'MarkdownV2',
+                      reply_markup: { inline_keyboard: [ [ ] ] }
+                    }
+                  )
+
+                  await bot.telegram.editMessageText(
+                    GROUP_ID,
+                    ticket_updated.tg_manager_message_id,
+                    null,
+                    ticketManager(ticket_updated),
+                    {
+                      parse_mode: 'MarkdownV2',
+                      reply_markup: { inline_keyboard: [ [ ] ] }
+                    }
+                  )
+
+                  await bot.telegram.sendMessage(
+                    ticket_updated.driver.id,
+                    [
+                      `Текущий баланс топливной карты: *${ticket_updated.payment_balance}₽*`,
+                      'Если захотите пополнить карту снова, введите: /start'
+                    ].join(''), {
+                      parse_mode: 'MarkdownV2',
+                      reply_markup: {
+                        inline_keyboard: [ [] ]
+                      }
+                    }
+                  )
+                    .then(async (r) => {
+                      await ctx.telegram.sendMessage(
+                        GROUP_ID,
+                        `Спасибо. Заявка успешно ${ticket_updated.status}`,
+                        { reply_to_message_id: message_id }
+                      )
+                    })
+                })
+            }
+          })
       } else {
         await ctx.telegram.sendMessage(
-          groupId,
+          GROUP_ID,
           'Необходимо ответным сообщением на Заявку — отправить реквизиты.',
           { reply_to_message_id: ctx.message.message_id }
         )
@@ -163,11 +171,11 @@ bot.on('text', async (ctx) => {
   }
 })
 
-// Запуск бота
+// Launch
 bot
   .launch()
   .then(() => {
-    console.log('Бот запущен!');
+    console.log('Bot started!');
   }
 );
 
