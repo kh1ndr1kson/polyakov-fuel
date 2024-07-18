@@ -136,7 +136,7 @@ bot.on('text', async (ctx) => {
                   await bot.telegram.sendMessage(
                     ticket_updated.driver.id,
                     [
-                      `Текущий баланс топливной карты: *${ticket_updated.payment_balance} ₽*\n\n`,
+                      `Текущий баланс топливной карты: *${escapers.MarkdownV2(ticket_updated.payment_balance)} ₽*\n\n`,
                       '_Если захотите пополнить карту снова, введите: /start_'
                     ].join(''), {
                       parse_mode: 'MarkdownV2',
