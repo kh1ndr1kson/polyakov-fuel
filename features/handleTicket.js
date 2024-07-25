@@ -101,7 +101,13 @@ export async function handleTicket(bot, driver, info, status) {
               GROUP_ID,
               'Водитель подтвердил оплату, проверяйте.',
               { reply_to_message_id: t.tg_manager_message_id }
-            )
+            ).then(async (bot_reply) => {
+              // push message_id to refs
+              await Tickets.findOneAndUpdate(
+                { _id: local_ticket_id },
+                { $addToSet: { refs: bot_reply.message_id } },
+              )
+            })
           })
       })
   })

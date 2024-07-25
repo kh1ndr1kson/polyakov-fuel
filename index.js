@@ -61,15 +61,29 @@ bot.on('text', async (ctx) => {
         const message_id = ctx.update.message.message_id
         const reply_message_id = ctx.update.message?.reply_to_message.message_id
 
-        Tickets.findOne({ tg_manager_message_id: reply_message_id })
+        // push message_id to refs
+        Tickets.findOneAndUpdate(
+          { tg_manager_message_id: reply_message_id },
+          { $addToSet: { refs: message_id } },
+          { new: true }
+        )
           .then(async (ticket_founded) => {
+            if (ticket_founded.status === statuses.accepted) return
+
             // Check forbidden
             if (ctx.update.message.from.id !== ticket_founded?.manager?.id || !ticket_founded?.manager?.id) {
               await ctx.telegram.sendMessage(
                 GROUP_ID,
                 'Ошибка доступа. Вы не являетесь менеджером этой заявки.',
                 { reply_to_message_id: message_id }
-              )
+              ).then(async (forbidden) => {
+                // push message_id to refs
+                await Tickets.findOneAndUpdate(
+                  { tg_manager_message_id: reply_message_id },
+                  { $addToSet: { refs: forbidden.message_id } },
+                  // { new: true }
+                )
+              })
 
               return
             }
@@ -93,14 +107,21 @@ bot.on('text', async (ctx) => {
                   await Tickets.findOneAndUpdate(
                     { _id: ticket_founded._id},
                     { payment_info: ctx.update.message.text, tg_driver_message_id: r.message_id },
-                    { new: true }
+                    // { new: true }
                   )
                     .then(async (ticket_updated) => {
                       await ctx.telegram.sendMessage(
                         GROUP_ID,
                         'Спасибо. Я отправил Ваши реквизиты водителю.',
                         { reply_to_message_id: message_id }
-                      )
+                      ).then(async (bot_reply) => {
+                        // push message_id to refs
+                        await Tickets.findOneAndUpdate(
+                          { _id: ticket_founded._id },
+                          { $addToSet: { refs: bot_reply.message_id } },
+                          // { new: true }
+                        )
+                      })
                     })
                 })
             } else {
@@ -145,17 +166,33 @@ bot.on('text', async (ctx) => {
                       }
                     }
                   )
-                    .then(async (r) => {
+                    .then(async () => {
                       await ctx.telegram.sendMessage(
                         GROUP_ID,
                         `Спасибо. Заявка успешно ${ticket_updated.status}`,
                         { reply_to_message_id: message_id }
-                      )
+                      ).then(async (bot_reply) => {
+                        // push message_id to refs
+                        await Tickets.findOneAndUpdate(
+                          { _id: ticket_updated._id },
+                          { $addToSet: { refs: bot_reply.message_id } },
+                          { new: true }
+                        ).then(({refs}) => {
+                          setTimeout(() => {
+                            const deletePromises = refs.map((id) =>
+                              ctx.deleteMessage(id)
+                            )
+
+                            Promise.all(deletePromises)
+                          }, 5000)
+                        })
+                      })
                     })
                 })
             }
           })
       } else {
+        // no push to refs by ticket
         await ctx.telegram.sendMessage(
           GROUP_ID,
           'Необходимо ответным сообщением на Заявку — отправить реквизиты.',
@@ -172,9 +209,4 @@ bot
   .then(() => {
     console.log('Bot started!');
   }
-);
-
-// Остановка бота (SIGINT, SIGTERM, SIGQUIT)
-// process.once('SIGINT', () => bot.stop('SIGINT'));
-// process.once('SIGTERM', () => bot.stop('SIGTERM'));
-// process.once('SIGQUIT', () => bot.stop('SIGQUIT'));
+)

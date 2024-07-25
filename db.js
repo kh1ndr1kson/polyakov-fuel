@@ -29,6 +29,8 @@ export const ticketSchema = new mongoose.Schema({
   },
   tg_manager_message_id: Number,
   tg_driver_message_id: Number,
+  refs: []
 })
 
-export const Tickets = mongoose.model('tickets', ticketSchema)
+// todo [__tickets] - DEV model, change to [tickets] to PROD
+export const Tickets = mongoose.model('__tickets', ticketSchema)
