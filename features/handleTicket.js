@@ -13,12 +13,14 @@ export async function handleTicket(bot, driver, info, status) {
   })
     .save({ new: true })
     .then(async (new_ticket) => {
-      await bot.telegram.sendMessage(GROUP_ID, ticketManager(new_ticket),
+      await bot.telegram.sendPhoto(GROUP_ID, 'https://telegram.org/file/400780400026/1/xwmW8Qofk5M.263566/16218cb12e7549e76b',
         {
+          caption: ticketManager(new_ticket),
           parse_mode: 'MarkdownV2',
           reply_markup: {
             inline_keyboard: [
-              [{ text: 'Принять заявку', callback_data: 'take_ticket' }]
+              [{ text: 'Принять заявку', callback_data: 'take_ticket' }],
+              [{ text: '❌ Отменить', callback_data: `reject_${new_ticket._id}` }]
             ]
           }
         }
@@ -40,10 +42,10 @@ export async function handleTicket(bot, driver, info, status) {
         // update ticket
         await Tickets.findOneAndUpdate(
           { _id: local_ticket._id},
-          { manager: ctx.update.callback_query.from, status: statuses.processed },
+          { manager: ctx.update.callback_query.from, status: 'processed' },
           { new: true }
         ).then(async (t) => {
-          await bot.telegram.editMessageText(
+          await bot.telegram.editMessageCaption(
             GROUP_ID,
             t.tg_manager_message_id,
             null,
@@ -60,54 +62,26 @@ export async function handleTicket(bot, driver, info, status) {
   })
 
   // DRIVER Trusted payment
-  bot.action(/^payment_trust_(\w+)$/, async (ctx) => {
+  bot.action(/^reject_(\w+)$/, async (ctx) => {
     const local_ticket_id = ctx.match[1]
 
     // update ticket
-    await Tickets.findOneAndUpdate(
-      { _id: local_ticket_id},
-      { status: statuses.trusted },
-      { new: true }
-    )
-      .then(async (t) => {
-        await bot.telegram.editMessageText(
-          GROUP_ID,
-          t.tg_manager_message_id,
-          null,
-          ticketManager(t),
-          {
-            parse_mode: 'MarkdownV2',
-            reply_markup: {
-              inline_keyboard: [ [] ]
-            }
-          }
-        )
-          .then(async () => {
-            // send from GROUP to DRIVER
-            await ctx.telegram.editMessageText(
-              t.driver.id,
-              t.tg_driver_message_id,
-              null,
-              ticketDriver(t, '', 'Ожидайте подтверждения от менеджера ⏳'),
-              {
-                parse_mode: 'MarkdownV2',
-                reply_markup: {
-                  inline_keyboard: [ [] ]
-                }
-              }
+    await Tickets.findOne({ _id: local_ticket_id})
+      .then(async (founded) => {
+        await Tickets.deleteOne({ _id: local_ticket_id })
+          .then(() => {
+            const deletePromises = founded.refs.map((id) =>
+              bot.telegram.deleteMessage(GROUP_ID, id)
             )
 
-            await ctx.telegram.sendMessage(
-              GROUP_ID,
-              'Водитель подтвердил оплату, проверяйте.',
-              { reply_to_message_id: t.tg_manager_message_id }
-            ).then(async (bot_reply) => {
-              // push message_id to refs
-              await Tickets.findOneAndUpdate(
-                { _id: local_ticket_id },
-                { $addToSet: { refs: bot_reply.message_id } },
-              )
-            })
+            Promise.all(deletePromises)
+              .then(async (r) => {
+                await bot.telegram.deleteMessage(GROUP_ID, founded.tg_manager_message_id)
+              })
+
+            if (founded.tg_driver_message_id) {
+              bot.telegram.deleteMessage(founded.driver.id, founded.tg_driver_message_id)
+            }
           })
       })
   })
