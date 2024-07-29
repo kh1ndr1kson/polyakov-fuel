@@ -7,7 +7,7 @@ import {ticketDriver} from "./utils/ticket.driver.js";
 import {statuses} from "./utils/statuses.js";
 import {ticketManager} from "./utils/ticket.manager.js";
 import {handleTicket} from "./features/handleTicket.js";
-import {GROUP_ID} from "./utils/constants.js";
+import {GROUP_ID, HELP_MANAGER} from "./utils/constants.js";
 import {escapers} from "@telegraf/entity";
 import {handleBalance} from "./features/handleBalance.js";
 import onTextTicketGroup from "./features/onTextTicketGroup.js";
@@ -40,10 +40,8 @@ bot.start((ctx) => {
     ].join(''),
     Markup.inlineKeyboard([
       [Markup.button.callback('Пополнить карту', 'refuel')],
-      [
-        Markup.button.callback('Узнать баланс', 'balance'),
-        Markup.button.callback('Помощь', 'help'),
-      ]
+      [Markup.button.callback('Узнать баланс', 'balance')],
+      [Markup.button.url('Помощь', `https://${HELP_MANAGER}.t.me`)]
     ])
   )
 
@@ -54,7 +52,7 @@ bot.start((ctx) => {
     ctx.replyWithMarkdownV2([
       'Напишите в следующем сообщении необходимую информацию для пополнения карты:\n\n',
       '*Пример:*\n',
-      `||_${escapers.MarkdownV2('Петров Владимир Валерьевич\n8 (999) 880-32-12\nАЗС - Газпром, на сумму 2000 рублей')}_||`
+      `||_${escapers.MarkdownV2('Петров Владимир Валерьевич\n8 (999) 999-99-99\nАЗС - Газпром, на сумму 2000 рублей')}_||`
     ].join(''))
   })
 
@@ -85,7 +83,7 @@ bot.start((ctx) => {
           ctx.replyWithMarkdownV2([
             'Напишите в следующем сообщении необходимую информацию о себе, чтобы определить текущий баланс карты:\n\n',
             '*Пример:*\n',
-            `||_${escapers.MarkdownV2('Петров Владимир Валерьевич\n8 (999) 880-32-12')}_||`
+            `||_${escapers.MarkdownV2('Иванов Алексей Дмитриевич\n8 (999) 999-99-99\nАЗС - Лукоил')}_||`
           ].join(''))
         }
       })
