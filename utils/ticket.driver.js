@@ -6,6 +6,6 @@ export const ticketDriver = (ticket, payment_info = '', action_text = '') => {
     `${statuses[ticket.status]}\n\n`,
     `_${escapers.MarkdownV2(ticket.info)}_\n\n`,
     payment_info && `*Реквизиты для оплаты:*\n${escapers.MarkdownV2(payment_info)}\n\n`,
-    action_text,
+    escapers.MarkdownV2(action_text),
   ].join('')
 }

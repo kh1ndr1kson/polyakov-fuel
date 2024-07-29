@@ -2,15 +2,26 @@ import { Telegraf, Markup } from 'telegraf'
 import 'dotenv/config'
 import {hello} from "./utils/hello.js";
 import {commands} from "./utils/commands.js";
-import {Tickets} from "./db.js";
+import {Drivers, Tickets} from "./db.js";
 import {ticketDriver} from "./utils/ticket.driver.js";
 import {statuses} from "./utils/statuses.js";
 import {ticketManager} from "./utils/ticket.manager.js";
 import {handleTicket} from "./features/handleTicket.js";
 import {GROUP_ID} from "./utils/constants.js";
 import {escapers} from "@telegraf/entity";
+import {handleBalance} from "./features/handleBalance.js";
+import onTextTicketGroup from "./features/onTextTicketGroup.js";
+import onTextBalanceGroup from "./features/onTextBalanceGroup.js";
 
-const bot = new Telegraf(process.env.BOT_TOKEN);
+const bot = new Telegraf(process.env.BOT_TOKEN)
+
+const actions = {
+  refuel: new Set(),
+  balance: new Set(),
+  pinnedPayment: new Set(),
+  pinnedPaymentIds: new Set(),
+  help: [],
+}
 
 bot.telegram.setMyCommands(commands).then(r => {})
 
@@ -25,19 +36,59 @@ bot.start((ctx) => {
 
   ctx.replyWithMarkdown([
     `${hello()} 👋\n`,
-    'Я помогу Вам пополнить *топливную карту*.',
+    'Я помогу Вам пополнить *топливную карту*, узнать текущий баланс карты или связаться с менеджером.',
     ].join(''),
     Markup.inlineKeyboard([
-      Markup.button.callback('Пополнить карту', 'start_fuel'),
+      [Markup.button.callback('Пополнить карту', 'refuel')],
+      [
+        Markup.button.callback('Узнать баланс', 'balance'),
+        Markup.button.callback('Помощь', 'help'),
+      ]
     ])
   )
 
-  bot.action('start_fuel', async (ctx) => {
+  /* Пополнение карты */
+  bot.action('refuel', async (ctx) => {
+    actions.refuel.add(ctx.update.callback_query.from.id)
+
     ctx.replyWithMarkdownV2([
       'Напишите в следующем сообщении необходимую информацию для пополнения карты:\n\n',
       '*Пример:*\n',
       `||_${escapers.MarkdownV2('Петров Владимир Валерьевич\n8 (999) 880-32-12\nАЗС - Газпром, на сумму 2000 рублей')}_||`
     ].join(''))
+  })
+
+  /* Прикрепить чек об оплате */
+  bot.action(/^pin_payment_(\w+)$/, async (ctx) => {
+    const local_ticket_id = ctx.match[1]
+
+    actions.pinnedPayment.add(ctx.update.callback_query.from.id)
+    actions.pinnedPaymentIds.add(local_ticket_id) // todo need ?
+
+    ctx.replyWithMarkdownV2([
+      escapers.MarkdownV2('Хорошо.\n'),
+      escapers.MarkdownV2('Отправьте в следующем сообщении скриншот чека:\n')
+    ].join(''))
+  })
+
+  /* Узнать текущий баланс карты */
+  bot.action('balance', async (ctx) => {
+    Drivers.findOne({ 'driver.id': ctx.update.callback_query.from.id })
+      .then(async (record) => {
+        if (record.refs.length !== 0) {
+          ctx.replyWithMarkdownV2([
+            escapers.MarkdownV2('Вы недавно отправляли запрос Узнать баланс, пожалуйста, подождите.\n\n')
+          ].join(''))
+        } else {
+          actions.balance.add(ctx.update.callback_query.from.id)
+
+          ctx.replyWithMarkdownV2([
+            'Напишите в следующем сообщении необходимую информацию о себе, чтобы определить текущий баланс карты:\n\n',
+            '*Пример:*\n',
+            `||_${escapers.MarkdownV2('Петров Владимир Валерьевич\n8 (999) 880-32-12')}_||`
+          ].join(''))
+        }
+      })
   })
 })
 
@@ -46,153 +97,43 @@ bot.on('text', async (ctx) => {
     const driver = ctx.update.message.from
     const ticket_info = ctx.update.message.text
 
-    Tickets.find(
-      { 'driver.id': ctx.update.message.from.id, status: { $ne: 'accepted' } }
-    ).then(async (all) => {
-      if (all.length > 0) {
-        ctx.replyWithMarkdown([
-            'Извините.\n',
-            'У Вас есть незавершенная заявка - *отмените ее*, чтобы оформить новую.\n\n',
-          ].join('')
-        )
-      } else {
-        await handleTicket(bot, driver, ticket_info, 'created')
-          .then(() => {
-            ctx.replyWithMarkdown([
-                'Спасибо.\n',
-                'Заявка на пополнение топливной карты успешно создана.\n\n',
-                'Подождите, пожалуйста, скоро менеджер одобрит заявку и Вам придет сообщение для дальнейшей *оплаты*. \n\n',
-              ].join('')
-            )
-          })
-      }
-    })
+    if (actions.refuel.has(driver.id)) {
+      await handleTicket(bot, driver, ticket_info, 'created')
+        .then(() => {
+          ctx.replyWithMarkdown([
+              'Спасибо.\n',
+              'Заявка на пополнение топливной карты успешно создана.\n\n',
+              'Подождите, пожалуйста, скоро менеджер одобрит заявку и Вам придет сообщение для дальнейшей *оплаты*. \n\n',
+            ].join('')
+          )
+        })
+
+      actions.refuel.delete(driver.id)
+    }
+
+    if (actions.balance.has(driver.id)) {
+      await handleBalance(bot, driver, ticket_info)
+        .then(() => {
+          ctx.replyWithMarkdown([
+              'Спасибо.\n',
+              'Подождите, пожалуйста, скоро менеджер узнает *актуальный баланс* и Вам придет сообщение. \n\n',
+            ].join('')
+          )
+        })
+
+      actions.balance.delete(driver.id)
+    }
   } else if (ctx.chat.type === 'group' || ctx.chat.type === 'supergroup') {
     if (ctx.update.message.chat.id === Number(GROUP_ID)) {
       if (ctx.update.message?.reply_to_message) {
-        const message_id = ctx.update.message.message_id
         const reply_message_id = ctx.update.message?.reply_to_message.message_id
 
-        // push message_id to refs
-        Tickets.findOneAndUpdate(
-          { tg_manager_message_id: reply_message_id },
-          { $addToSet: { refs: message_id } },
-          { new: true }
-        )
-          .then(async (ticket_founded) => {
-            if (ticket_founded.status === 'accepted') return
-
-            // Check forbidden
-            if (ctx.update.message.from.id !== ticket_founded?.manager?.id || !ticket_founded?.manager?.id) {
-              await ctx.telegram.sendMessage(
-                GROUP_ID,
-                'Ошибка доступа. Вы не являетесь менеджером этой заявки.',
-                { reply_to_message_id: message_id }
-              ).then(async (forbidden) => {
-                // push message_id to refs
-                await Tickets.findOneAndUpdate(
-                  { tg_manager_message_id: reply_message_id },
-                  { $addToSet: { refs: forbidden.message_id } },
-                  // { new: true }
-                )
-              })
-
-              return
-            }
-
-            if (!ticket_founded.payment_info) {
-              // create ticket-message to DRIVER
-              // send from GROUP to DRIVER
-              await bot.telegram.sendMessage(
-                ticket_founded.driver.id,
-                ticketDriver(ticket_founded, ctx.update.message.text, 'После оплаты, пришлите скриншот выполненной операции в банке️'),
-                {
-                  parse_mode: 'MarkdownV2',
-                  reply_markup: {
-                    inline_keyboard: [
-                      [{ text: '❌ Отменить', callback_data: `reject_${ticket_founded._id}` }]
-                    ]
-                  }
-                }
-              )
-                .then(async (r) => {
-                  await Tickets.findOneAndUpdate(
-                    { _id: ticket_founded._id},
-                    { payment_info: ctx.update.message.text, tg_driver_message_id: r.message_id },
-                    // { new: true }
-                  )
-                    .then(async (ticket_updated) => {
-                      await ctx.telegram.sendMessage(
-                        GROUP_ID,
-                        'Спасибо. Я отправил Ваши реквизиты водителю.',
-                        { reply_to_message_id: message_id }
-                      ).then(async (bot_reply) => {
-                        // push message_id to refs
-                        await Tickets.findOneAndUpdate(
-                          { _id: ticket_founded._id },
-                          { $addToSet: { refs: bot_reply.message_id } },
-                          // { new: true }
-                        )
-                      })
-                    })
-                })
+        Drivers.findOne({ tg_last_message_id: reply_message_id })
+          .then((record) => {
+            if (record) {
+              onTextBalanceGroup(bot, ctx)
             } else {
-              await Tickets.findOneAndUpdate(
-                { _id: ticket_founded._id},
-                { status: 'accepted', payment_balance: ctx.update.message.text },
-                { new: true }
-              )
-                .then(async (ticket_updated) => {
-                  // update tickets [DRIVER, MANAGER]
-                  await bot.telegram.editMessageText(
-                    ticket_updated.driver.id,
-                    ticket_updated.tg_driver_message_id,
-                    null,
-                    ticketDriver(ticket_updated, '', ''),
-                  )
-
-                  await bot.telegram.editMessageCaption(
-                    GROUP_ID,
-                    ticket_updated.tg_manager_message_id,
-                    null,
-                    ticketManager(ticket_updated),
-                  )
-
-                  await bot.telegram.sendMessage(
-                    ticket_updated.driver.id,
-                    [
-                      `Текущий баланс топливной карты: *${escapers.MarkdownV2(ticket_updated.payment_balance)} ₽*\n\n`,
-                      '_Если захотите пополнить карту снова, введите: /start_'
-                    ].join(''), {
-                      parse_mode: 'MarkdownV2',
-                      reply_markup: {
-                        inline_keyboard: [ [] ]
-                      }
-                    }
-                  )
-                    .then(async () => {
-                      await ctx.telegram.sendMessage(
-                        GROUP_ID,
-                        `Спасибо. Заявка успешно ${statuses[ticket_updated.status]}`,
-                        { reply_to_message_id: message_id }
-                      ).then(async (bot_reply) => {
-                        // push message_id to refs
-                        await Tickets.findOneAndUpdate(
-                          { _id: ticket_updated._id },
-                          { $addToSet: { refs: bot_reply.message_id } },
-                          { new: true }
-                        ).then(({refs}) => {
-                          setTimeout(() => {
-                            const deletePromises = refs.map((id) =>
-                              ctx.deleteMessage(id)
-                            )
-
-                            Promise.all(deletePromises)
-                          }, 2500)
-                        })
-                      })
-                    })
-                })
+              onTextTicketGroup(bot, ctx)
             }
           })
       } else {
@@ -208,14 +149,14 @@ bot.on('text', async (ctx) => {
 })
 
 bot.on('photo', async (ctx) => {
-  if (ctx.chat.type === 'private') {
+  if (ctx.chat.type === 'private' && actions.pinnedPayment.has(ctx.update.message.from.id)) {
     Tickets.findOne(
-      {
-        status: 'processed',
-        'driver.id': ctx.update.message.from.id,
-        payment_info: { $exists: true, $ne: '' }
-      }
-    ).then(async (search) => {
+    {
+      status: 'processed',
+      'driver.id': ctx.update.message.from.id,
+      payment_info: { $exists: true, $ne: '' }
+    })
+      .then(async (search) => {
       if (search === null) {
         // no active tickets
       } else {
@@ -249,12 +190,7 @@ bot.on('photo', async (ctx) => {
                     updated.tg_driver_message_id,
                     null,
                     ticketDriver(updated, '', 'Ожидайте подтверждения от менеджера ⏳'),
-                    {
-                      parse_mode: 'MarkdownV2',
-                      reply_markup: {
-                        inline_keyboard: [ [] ]
-                      }
-                    }
+                    { parse_mode: 'MarkdownV2' }
                   )
 
                   await ctx.telegram.sendMessage(
@@ -271,7 +207,7 @@ bot.on('photo', async (ctx) => {
                     })
                 })
 
-              ctx.reply('Чек успешно прикреплен!');
+              ctx.reply('Спасибо.\nЯ отправил чек менеджеру.');
             } catch (error) {
               console.error('Ошибка прикрепления фото:', error);
               ctx.reply('Произошла ошибка при прикреплении чека. Попробуйте позже.');
@@ -279,6 +215,8 @@ bot.on('photo', async (ctx) => {
           })
       }
     })
+
+    actions.pinnedPayment.delete(ctx.update.message.from.id)
   }
 })
 

@@ -32,5 +32,21 @@ export const ticketSchema = new mongoose.Schema({
   refs: []
 })
 
+export const driverSchema = new mongoose.Schema({
+  driver: {
+    id: Number,
+    is_bot: Boolean,
+    first_name: String,
+    last_name: String,
+    username: String,
+    language_code: String,
+    is_premium: Boolean
+  },
+  balance: String,
+  tg_last_message_id: Number,
+  refs: []
+})
+
 // todo [__tickets] - DEV model, change to [tickets] to PROD
 export const Tickets = mongoose.model('__tickets', ticketSchema)
+export const Drivers = mongoose.model('__drivers', driverSchema)
