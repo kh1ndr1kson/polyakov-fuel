@@ -136,7 +136,12 @@ bot.on('text', async (ctx) => {
           GROUP_ID,
           'Необходимо ответным сообщением на Заявку — отправить реквизиты.',
           { reply_to_message_id: ctx.message.message_id }
-        )
+        ).then((r) => {
+          setTimeout(() => {
+            bot.telegram.deleteMessage(GROUP_ID, ctx.message.message_id)
+            bot.telegram.deleteMessage(GROUP_ID, r.message_id)
+          }, 2500)
+        })
       }
     }
   }
