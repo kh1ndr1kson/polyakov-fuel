@@ -1,7 +1,6 @@
 import {Tickets} from "../db.js";
 import {ticketManager} from "../utils/ticket.manager.js";
 import {GROUP_ID} from "../utils/constants.js";
-import handleInterval from "./handleInterval.js";
 
 export async function handleTicket(bot, driver, info, status) {
   // Save to db

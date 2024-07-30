@@ -220,6 +220,16 @@ bot.on('photo', async (ctx) => {
   }
 })
 
+bot.on('document', (ctx) => {
+  if (ctx.chat.type === 'private' && actions.pinnedPayment.has(ctx.update.message.from.id)) {
+    ctx.telegram.sendMessage(
+      ctx.update.message.from.id,
+      'Извините, формат файла не поддерживается. Пожалуйста, прикрепите изображение (скриншот).',
+      { reply_to_message_id: ctx.message_id }
+    )
+  }
+})
+
 handleInterval(bot, 60 * 3) // 3 min
 
 // Launch
