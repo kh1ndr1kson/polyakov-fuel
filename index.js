@@ -1,10 +1,8 @@
-import { Telegraf, Markup } from 'telegraf'
+import {Telegraf, Markup, session} from 'telegraf'
 import 'dotenv/config'
 import {hello} from "./utils/hello.js";
-import {commands} from "./utils/commands.js";
 import {Drivers, Tickets} from "./db.js";
 import {ticketDriver} from "./utils/ticket.driver.js";
-import {statuses} from "./utils/statuses.js";
 import {ticketManager} from "./utils/ticket.manager.js";
 import {handleTicket} from "./features/handleTicket.js";
 import {GROUP_ID, HELP_MANAGER} from "./utils/constants.js";
@@ -12,18 +10,16 @@ import {escapers} from "@telegraf/entity";
 import {handleBalance} from "./features/handleBalance.js";
 import onTextTicketGroup from "./features/onTextTicketGroup.js";
 import onTextBalanceGroup from "./features/onTextBalanceGroup.js";
+import handleInterval from "./features/handleInterval.js";
 
 const bot = new Telegraf(process.env.BOT_TOKEN)
+bot.use(session({ defaultSession: () => ({ ticketId: '' }) }))
 
 const actions = {
   refuel: new Set(),
   balance: new Set(),
-  pinnedPayment: new Set(),
-  pinnedPaymentIds: new Set(),
-  help: [],
+  pinnedPayment: new Set()
 }
-
-bot.telegram.setMyCommands(commands).then(r => {})
 
 bot.start((ctx) => {
   if (ctx.update.message.chat.id === Number(GROUP_ID)) {
@@ -61,7 +57,7 @@ bot.start((ctx) => {
     const local_ticket_id = ctx.match[1]
 
     actions.pinnedPayment.add(ctx.update.callback_query.from.id)
-    actions.pinnedPaymentIds.add(local_ticket_id) // todo need ?
+    ctx.session.ticketId = local_ticket_id
 
     ctx.replyWithMarkdownV2([
       escapers.MarkdownV2('Хорошо.\n'),
@@ -73,9 +69,9 @@ bot.start((ctx) => {
   bot.action('balance', async (ctx) => {
     Drivers.findOne({ 'driver.id': ctx.update.callback_query.from.id })
       .then(async (record) => {
-        if (record.refs.length !== 0) {
+        if (record !== null && record?.refs?.length !== 0) {
           ctx.replyWithMarkdownV2([
-            escapers.MarkdownV2('Вы недавно отправляли запрос Узнать баланс, пожалуйста, подождите.\n\n')
+            escapers.MarkdownV2('Вы недавно отправляли запрос на баланс, пожалуйста, подождите.\n\n')
           ].join(''))
         } else {
           actions.balance.add(ctx.update.callback_query.from.id)
@@ -150,16 +146,17 @@ bot.on('photo', async (ctx) => {
   if (ctx.chat.type === 'private' && actions.pinnedPayment.has(ctx.update.message.from.id)) {
     Tickets.findOne(
     {
-      status: 'processed',
-      'driver.id': ctx.update.message.from.id,
-      payment_info: { $exists: true, $ne: '' }
+      _id: ctx.session.ticketId,
+      // status: 'processed',
+      // 'driver.id': ctx.update.message.from.id,
+      // payment_info: { $exists: true, $ne: '' }
     })
-      .then(async (search) => {
-      if (search === null) {
+      .then(async (ticket) => {
+      if (ticket === null) {
         // no active tickets
       } else {
         await Tickets.findOneAndUpdate(
-          { _id: search._id },
+          { _id: ticket._id },
           { status: 'trusted' },
           { new: true }
         )
@@ -169,14 +166,14 @@ bot.on('photo', async (ctx) => {
             try {
               await ctx.telegram.editMessageMedia(
                 GROUP_ID,
-                search.tg_manager_message_id,
+                ticket.tg_manager_message_id,
                 null,
                 { type: 'photo', media: photoUrl }
               )
 
               await ctx.telegram.editMessageCaption(
                 GROUP_ID,
-                search.tg_manager_message_id,
+                ticket.tg_manager_message_id,
                 null,
                 ticketManager(updated),
                 { parse_mode: 'MarkdownV2' }
@@ -217,6 +214,8 @@ bot.on('photo', async (ctx) => {
     actions.pinnedPayment.delete(ctx.update.message.from.id)
   }
 })
+
+handleInterval(bot, 60 * 3) // 3 min
 
 // Launch
 bot
