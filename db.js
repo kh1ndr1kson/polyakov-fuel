@@ -47,6 +47,6 @@ export const driverSchema = new mongoose.Schema({
   refs: []
 })
 
-// todo [__tickets] - DEV model, change to [tickets] to PROD
-export const Tickets = mongoose.model('__tickets', ticketSchema)
-export const Drivers = mongoose.model('__drivers', driverSchema)
+// todo [__tickets, __drivers] - DEV model, change to [tickets, drivers] to PROD
+export const Tickets = mongoose.model('tickets', ticketSchema)
+export const Drivers = mongoose.model('drivers', driverSchema)
