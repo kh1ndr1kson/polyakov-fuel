@@ -22,7 +22,7 @@ export default function onTextTicketGroup(bot, ctx) {
       if (ctx.update.message.from.id !== ticket_founded?.manager?.id || !ticket_founded?.manager?.id) {
         await ctx.telegram.sendMessage(
           GROUP_ID,
-          'Ошибка доступа. Вы не являетесь менеджером этой заявки.',
+          'Вы не являетесь менеджером этой заявки.',
           { reply_to_message_id: message_id }
         ).then(async (forbidden) => {
           // push message_id to refs
