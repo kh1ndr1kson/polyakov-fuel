@@ -1,5 +1,6 @@
 import {Telegraf, Markup, session} from 'telegraf'
 import 'dotenv/config'
+import {HttpsProxyAgent} from 'https-proxy-agent'
 import {hello} from "./utils/hello.js";
 import {Drivers, Tickets} from "./db.js";
 import {ticketDriver} from "./utils/ticket.driver.js";
@@ -12,7 +13,18 @@ import onTextTicketGroup from "./features/onTextTicketGroup.js";
 import onTextBalanceGroup from "./features/onTextBalanceGroup.js";
 import handleInterval from "./features/handleInterval.js";
 
-const bot = new Telegraf(process.env.BOT_TOKEN)
+const proxyUrl = process.env.PROXY_URL
+
+const agent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined
+
+const bot = new Telegraf(process.env.BOT_TOKEN, {
+  telegram: agent
+    ? {
+        agent,
+        attachmentAgent: agent
+      }
+    : undefined
+})
 bot.use(session({ defaultSession: () => ({ ticketId: '' }) }))
 
 const actions = {
